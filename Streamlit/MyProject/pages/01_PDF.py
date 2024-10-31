@@ -1,6 +1,5 @@
 import streamlit as st
 from langchain_core.messages import ChatMessage
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
@@ -9,16 +8,18 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.prompts import PromptTemplate
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_core.prompts import load_prompt
+from langchain_teddynote import logging
 from dotenv import load_dotenv
-import glob
 import os
 
 # API KEY 로그
 load_dotenv()
+
+# 로깅
+logging.langsmith("[PDF RAG]")
 
 # 캐시 디렉토리 생성
 if not os.path.exists(".cache"):
@@ -50,7 +51,8 @@ with st.sidebar:
     # 파일 업로드
     uploaded_file = st.file_uploader("파일 업로드", type=["pdf"])
 
-    selected_prompt = "prompts/pdf-rag.yaml"
+    # 모델 선택
+    selected_model = st.selectbox("LLM 선택",["gpt-4o-mini","gpt-4o","gpt-4-turbo"], index=0)
 
 
 # 이전 대화 출력
@@ -63,6 +65,7 @@ def print_message():
 def add_message(role, message):
     st.session_state["messages"].append(ChatMessage(role=role,
                                                     content=message))
+
 
 # 파일을 캐시 저장(시간이 오래 걸리는 작업을 처리할 예정)
 @st.cache_resource(show_spinner="업로드한 파일을 처리 중입니다...")
@@ -104,29 +107,16 @@ def embed_file(file):
 
 
 # 체인 생성 함수
-def create_chain(retriever):
+def create_chain(retriever, model_name=selected_model):
     # 프롬프트 적용
 
     # 단계 6: 프롬프트 생성(Create Prompt)
     # 프롬프트를 생성합니다.
-    prompt = PromptTemplate.from_template(
-        """You are an assistant for question-answering tasks. 
-    Use the following pieces of retrieved context to answer the question. 
-    If you don't know the answer, just say that you don't know. 
-    You must in include 'page' number in your answer
-    Answer in Korean.
-
-    #Context: 
-    {context}
-
-    #Question:
-    {question}
-
-    #Answer:""")
+    prompt = load_prompt('prompts/pdf-rag.yaml')
 
     # 단계 7 : 언어모델(LLM) 생성
     # 모델(LLM) 생성
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatOpenAI(model=model_name, temperature=0)
 
     # 단계 8 : 체인(Chain) 생성
     chain = ({
@@ -161,14 +151,14 @@ warning_msg = st.empty()
 
 # 입력이 들어오면
 if user_input:
-    
+
     # 체인 생성
-    chain = st.session_state['chain']
-    
-    if chain is not None:    
+    chain = st.session_state["chain"]
+
+    if chain is not None:
         # 대화 기록 출력
         st.chat_message("user").write(user_input)
-        
+
         # 스트리밍 호출
         response = chain.stream(user_input)
         with st.chat_message("assistant"):
